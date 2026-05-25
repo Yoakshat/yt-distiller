@@ -1,11 +1,23 @@
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message.type !== 'ANALYZE_TRANSCRIPT') return false;
+  if (message.type === 'FETCH_TRANSCRIPT_URL') {
+    fetch(message.url)
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
 
-  analyzeTranscript(message.transcript)
-    .then((segments) => sendResponse({ ok: true, segments }))
-    .catch((err) => sendResponse({ ok: false, error: err.message }));
+  if (message.type === 'ANALYZE_TRANSCRIPT') {
+    analyzeTranscript(message.transcript)
+      .then((segments) => sendResponse({ ok: true, segments }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
 
-  return true;
+  return false;
 });
 
 async function analyzeTranscript(transcript) {

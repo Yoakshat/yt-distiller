@@ -30,12 +30,16 @@ async function fetchTranscript() {
 
   const url = track.baseUrl + '&fmt=json3';
 
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch transcript: HTTP ${response.status}`);
-  }
+  const result = await new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ type: 'FETCH_TRANSCRIPT_URL', url }, (response) => {
+      if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+      else resolve(response);
+    });
+  });
 
-  const data = await response.json();
+  if (!result.ok) throw new Error(`Failed to fetch transcript: ${result.error}`);
+
+  const data = result.data;
 
   if (!Array.isArray(data.events)) {
     throw new Error('Unexpected transcript format: missing events array.');
