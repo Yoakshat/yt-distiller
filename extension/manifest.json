@@ -3,7 +3,7 @@
   "name": "YT Distiller",
   "version": "1.0",
   "description": "Distill any YouTube video to only the essential clips",
-  "permissions": ["storage", "activeTab", "scripting"],
+  "permissions": ["storage", "activeTab", "scripting", "tabs"],
   "host_permissions": [
     "https://www.youtube.com/*",
     "https://api.deepseek.com/*"
