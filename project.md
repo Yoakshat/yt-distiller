@@ -32,10 +32,13 @@ Flow:
 7. Content script uses YouTube iframe API to play only those segments in sequence, auto-advancing
 
 ## Key Files
-_Will be filled in as we build_
+- `extension/manifest.json` — MV3 manifest, permissions, content script registration
+- `extension/content.js` — transcript fetch + Distill button + segment playback
+- `extension/background.js` — DeepSeek V4 Pro API call, returns [{start, end}] segments
+- `extension/popup/popup.html` + `popup.js` — settings UI with API key management
 
 ## How to Run
-1. Clone repo, open `chrome://extensions`, enable Developer Mode
-2. Click "Load unpacked", select the `extension/` folder
-3. Open extension popup, paste your DeepSeek V4 Pro API key
-4. Visit any YouTube video, click the "Distill" button
+1. Clone repo, open `chrome://extensions`, enable **Developer Mode**
+2. Click **Load unpacked**, select the `extension/` folder
+3. Click the YT Distiller icon, paste your DeepSeek V4 Pro API key, click Save
+4. Go to any YouTube video — click **Distill ✦** in the player controls
