@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-<title>YT Distiller</title>
+  <title>YT Distiller</title>
   <style>
     * {
       box-sizing: border-box;
@@ -12,57 +12,160 @@
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #0f0f0f;
+      background: #1a1a1a;
       color: #e8e8e8;
-      width: 300px;
+      width: 320px;
       padding: 20px;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
     }
 
     h1 {
       font-size: 18px;
       font-weight: 700;
       color: #ff4444;
-      margin-bottom: 18px;
       letter-spacing: -0.3px;
+    }
+
+    .status-chip {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 500;
+      color: #aaa;
+      background: #252525;
+      border-radius: 20px;
+      padding: 4px 10px;
+      border: 1px solid #333;
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .status-dot.green {
+      background: #44cc77;
+      box-shadow: 0 0 4px #44cc7788;
+    }
+
+    .status-dot.red {
+      background: #ff5555;
+      box-shadow: 0 0 4px #ff555588;
     }
 
     label {
       display: block;
-      font-size: 12px;
-      font-weight: 500;
-      color: #aaa;
-      margin-bottom: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #888;
+      margin-bottom: 7px;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.6px;
     }
 
-    input[type="password"] {
-      width: 100%;
+    .input-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    input[type="password"],
+    input[type="text"] {
+      flex: 1;
       padding: 9px 12px;
-      background: #1a1a1a;
+      background: #252525;
       border: 1px solid #333;
-      border-radius: 6px;
+      border-radius: 7px;
       color: #e8e8e8;
       font-size: 13px;
       outline: none;
       transition: border-color 0.15s;
+      min-width: 0;
     }
 
-    input[type="password"]:focus {
+    input[type="password"]:focus,
+    input[type="text"]:focus {
       border-color: #ff4444;
     }
 
-    input[type="password"]::placeholder {
+    input[type="password"]::placeholder,
+    input[type="text"]::placeholder {
       color: #555;
     }
 
-    button {
-      margin-top: 12px;
+    .toggle-btn {
+      flex-shrink: 0;
+      padding: 7px 10px;
+      background: #252525;
+      border: 1px solid #333;
+      border-radius: 7px;
+      color: #888;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
+      white-space: nowrap;
+    }
+
+    .toggle-btn:hover {
+      border-color: #555;
+      color: #bbb;
+    }
+
+    .input-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 7px;
+      min-height: 16px;
+    }
+
+    .deepseek-link {
+      font-size: 11px;
+      color: #666;
+      text-decoration: none;
+      cursor: pointer;
+      transition: color 0.15s;
+    }
+
+    .deepseek-link:hover {
+      color: #ff6666;
+    }
+
+    #clearBtn {
+      font-size: 11px;
+      color: #555;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0;
+      margin: 0;
+      width: auto;
+      font-weight: 500;
+      transition: color 0.15s;
+    }
+
+    #clearBtn:hover {
+      color: #ff5555;
+      background: none;
+    }
+
+    button#saveBtn {
+      margin-top: 14px;
       width: 100%;
-      padding: 9px;
+      padding: 10px;
       background: #ff4444;
       border: none;
-      border-radius: 6px;
+      border-radius: 7px;
       color: #fff;
       font-size: 13px;
       font-weight: 600;
@@ -70,7 +173,7 @@
       transition: background 0.15s;
     }
 
-    button:hover {
+    button#saveBtn:hover {
       background: #e03333;
     }
 
@@ -87,21 +190,35 @@
     }
 
     #status.success {
-      color: #66cc66;
+      color: #44cc77;
     }
   </style>
 </head>
 <body>
-  <h1>YT Distiller</h1>
+  <div class="header">
+    <h1>YT Distiller</h1>
+    <div class="status-chip" id="statusChip">
+      <span class="status-dot red" id="statusDot"></span>
+      <span id="statusLabel">No key</span>
+    </div>
+  </div>
 
   <label for="apiKey">DeepSeek API Key</label>
-  <input
-    type="password"
-    id="apiKey"
-    placeholder="sk-..."
-    autocomplete="off"
-    spellcheck="false"
-  />
+  <div class="input-row">
+    <input
+      type="password"
+      id="apiKey"
+      placeholder="sk-..."
+      autocomplete="off"
+      spellcheck="false"
+    />
+    <button class="toggle-btn" id="toggleBtn">Show</button>
+  </div>
+
+  <div class="input-meta">
+    <span class="deepseek-link" id="deepseekLink">Get a free DeepSeek API key →</span>
+    <button id="clearBtn" style="display:none;">Clear</button>
+  </div>
 
   <button id="saveBtn">Save</button>
 
