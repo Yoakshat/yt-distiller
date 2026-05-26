@@ -14,8 +14,7 @@ if (!API_KEY) {
 }
 
 (async () => {
-  const userDataDir = path.join(os.tmpdir(), 'yt-distiller-persistent');
-  fs.mkdirSync(userDataDir, { recursive: true });
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-distiller-'));
 
   const CHROMIUM_PATH = chromium.executablePath();
   console.log('Using Chromium:', CHROMIUM_PATH);
@@ -71,37 +70,35 @@ if (!API_KEY) {
     console.warn('Could not detect extension — check chrome://extensions for load errors.');
   }
 
-  // Inject mock ytInitialData into every page before any scripts run.
-  // The extension reads window.ytInitialData (or a <script> tag) to extract transcript segments
-  // without making any network request — no timedtext mock needed.
+  // Transcript segments returned by the mocked innertube endpoint
+  const MOCK_SEGMENTS = [
+    { transcriptSegmentRenderer: { startMs: '0', endMs: '6000', snippet: { runs: [{ text: 'Today we ask: why do ideas spread?' }] } } },
+    { transcriptSegmentRenderer: { startMs: '6000', endMs: '11000', snippet: { runs: [{ text: 'The internet rewards outrage, not nuance.' }] } } },
+    { transcriptSegmentRenderer: { startMs: '11000', endMs: '16000', snippet: { runs: [{ text: 'Every share makes the angry article more visible.' }] } } },
+    { transcriptSegmentRenderer: { startMs: '16000', endMs: '21000', snippet: { runs: [{ text: 'This is a well-studied psychological phenomenon.' }] } } },
+    { transcriptSegmentRenderer: { startMs: '21000', endMs: '28000', snippet: { runs: [{ text: 'Researchers call it the outrage loop.' }] } } },
+    { transcriptSegmentRenderer: { startMs: '28000', endMs: '34000', snippet: { runs: [{ text: 'But understanding it can help you break the cycle.' }] } } },
+    { transcriptSegmentRenderer: { startMs: '34000', endMs: '39000', snippet: { runs: [{ text: 'First, recognize your emotional reaction.' }] } } },
+    { transcriptSegmentRenderer: { startMs: '39000', endMs: '45000', snippet: { runs: [{ text: 'Second, slow down before sharing.' }] } } },
+    { transcriptSegmentRenderer: { startMs: '45000', endMs: '51000', snippet: { runs: [{ text: 'Third, look for sources that disagree with you.' }] } } },
+    { transcriptSegmentRenderer: { startMs: '51000', endMs: '58000', snippet: { runs: [{ text: 'Your brain is not designed for the modern information diet.' }] } } },
+    { transcriptSegmentRenderer: { startMs: '58000', endMs: '64000', snippet: { runs: [{ text: 'The key insight: algorithms optimize for engagement, not truth.' }] } } },
+    { transcriptSegmentRenderer: { startMs: '64000', endMs: '70000', snippet: { runs: [{ text: 'And engagement is driven by emotional arousal.' }] } } },
+    { transcriptSegmentRenderer: { startMs: '70000', endMs: '77000', snippet: { runs: [{ text: 'Thanks for watching. Subscribe for more.' }] } } },
+  ];
+
+  // Inject mock ytInitialData with a continuationItemRenderer (the common YouTube shape).
+  // The extension will POST to /youtubei/v1/get_transcript to resolve the token.
   const MOCK_INITIAL_DATA = {
     engagementPanels: [
       {
         engagementPanelSectionListRenderer: {
           panelIdentifier: 'engagement-panel-searchable-transcript',
           content: {
-            transcriptRenderer: {
-              content: {
-                transcriptSearchPanelRenderer: {
-                  body: {
-                    transcriptSegmentListRenderer: {
-                      initialSegments: [
-                        { transcriptSegmentRenderer: { startMs: '0', endMs: '6000', snippet: { runs: [{ text: 'Today we ask: why do ideas spread?' }] } } },
-                        { transcriptSegmentRenderer: { startMs: '6000', endMs: '11000', snippet: { runs: [{ text: 'The internet rewards outrage, not nuance.' }] } } },
-                        { transcriptSegmentRenderer: { startMs: '11000', endMs: '16000', snippet: { runs: [{ text: 'Every share makes the angry article more visible.' }] } } },
-                        { transcriptSegmentRenderer: { startMs: '16000', endMs: '21000', snippet: { runs: [{ text: 'This is a well-studied psychological phenomenon.' }] } } },
-                        { transcriptSegmentRenderer: { startMs: '21000', endMs: '28000', snippet: { runs: [{ text: 'Researchers call it the outrage loop.' }] } } },
-                        { transcriptSegmentRenderer: { startMs: '28000', endMs: '34000', snippet: { runs: [{ text: 'But understanding it can help you break the cycle.' }] } } },
-                        { transcriptSegmentRenderer: { startMs: '34000', endMs: '39000', snippet: { runs: [{ text: 'First, recognize your emotional reaction.' }] } } },
-                        { transcriptSegmentRenderer: { startMs: '39000', endMs: '45000', snippet: { runs: [{ text: 'Second, slow down before sharing.' }] } } },
-                        { transcriptSegmentRenderer: { startMs: '45000', endMs: '51000', snippet: { runs: [{ text: 'Third, look for sources that disagree with you.' }] } } },
-                        { transcriptSegmentRenderer: { startMs: '51000', endMs: '58000', snippet: { runs: [{ text: 'Your brain is not designed for the modern information diet.' }] } } },
-                        { transcriptSegmentRenderer: { startMs: '58000', endMs: '64000', snippet: { runs: [{ text: 'The key insight: algorithms optimize for engagement, not truth.' }] } } },
-                        { transcriptSegmentRenderer: { startMs: '64000', endMs: '70000', snippet: { runs: [{ text: 'And engagement is driven by emotional arousal.' }] } } },
-                        { transcriptSegmentRenderer: { startMs: '70000', endMs: '77000', snippet: { runs: [{ text: 'Thanks for watching. Subscribe for more.' }] } } },
-                      ],
-                    },
-                  },
+            continuationItemRenderer: {
+              continuationEndpoint: {
+                getTranscriptEndpoint: {
+                  params: 'MOCK_CONTINUATION_TOKEN',
                 },
               },
             },
@@ -114,6 +111,35 @@ if (!API_KEY) {
   await context.addInitScript((data) => {
     window.ytInitialData = data;
   }, MOCK_INITIAL_DATA);
+
+  // Mock the innertube get_transcript endpoint so no real network call is made.
+  await context.route('**/youtubei/v1/get_transcript**', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        actions: [
+          {
+            updateEngagementPanelAction: {
+              content: {
+                transcriptRenderer: {
+                  content: {
+                    transcriptSearchPanelRenderer: {
+                      body: {
+                        transcriptSegmentListRenderer: {
+                          initialSegments: MOCK_SEGMENTS,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        ],
+      }),
+    });
+  });
 
   // Open YouTube
   const page = await context.newPage();
@@ -134,48 +160,46 @@ if (!API_KEY) {
   console.log('\nNavigating to test video...');
   await page.goto(TEST_VIDEO, { waitUntil: 'domcontentloaded' });
 
-  // Wait for player controls
+  // Wait for player controls then let yt-navigate-finish settle
   console.log('Waiting for player controls...');
   try {
-    await page.waitForSelector('.ytp-right-controls', { timeout: 15000 });
+    await page.waitForSelector('.ytp-right-controls', { timeout: 20000 });
     console.log('Player controls found.');
   } catch {
     console.error('Player controls never appeared.');
   }
+  await page.waitForTimeout(4000); // let yt-navigate-finish cycle complete
 
-  // On first-install the content script may not inject — reload once to ensure it runs
-  const btnEarly = await page.$('#ytd-distill-btn');
-  if (!btnEarly) {
-    console.log('Button not found on first load, reloading page...');
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.waitForSelector('.ytp-right-controls', { timeout: 15000 }).catch(() => {});
-  }
-
-  // Wait for Distill button
+  // Wait for Distill button — poll via waitForFunction so we catch it even if it flickers
   console.log('Waiting for Distill button...');
   try {
-    await page.waitForSelector('#ytd-distill-btn', { timeout: 12000 });
+    await page.waitForFunction(() => !!document.getElementById('ytd-distill-btn'), null, { timeout: 15000 });
     const text = await page.$eval('#ytd-distill-btn', el => el.textContent);
     console.log('Distill button found! Text:', text);
 
-    // Click it and watch what happens
+    // Programmatic click — bypasses YouTube player overlay interception
     console.log('\nClicking Distill...');
-    await page.click('#ytd-distill-btn');
+    await page.evaluate(() => document.getElementById('ytd-distill-btn')?.click());
 
-    // Watch the button state for 60s (DeepSeek can take a while)
-    for (let i = 0; i < 60; i++) {
+    // Watch the button state for 90s (DeepSeek can take a while)
+    let passed = false;
+    for (let i = 0; i < 90; i++) {
       await page.waitForTimeout(1000);
       const btnText = await page.$eval('#ytd-distill-btn', el => el.textContent).catch(() => 'gone');
-      const errVisible = await page.$eval('#ytd-error', el => el.style.display !== 'none' ? el.textContent : '').catch(() => '');
-      console.log(`[${i+1}s] button="${btnText}"${errVisible ? ' error="' + errVisible + '"' : ''}`);
-      if (btnText === 'Distill ✶' && i > 2) { console.log('Flow completed!'); break; }
+      const errText = await page.$eval('#ytd-error', el => el.style.display !== 'none' ? el.textContent : '').catch(() => '');
+      console.log(`[${i+1}s] button="${btnText}"${errText ? ' error="' + errText + '"' : ''}`);
+      if (errText) { console.error('TEST FAILED — error shown:', errText); break; }
+      if (btnText === 'Distill ✶' && i > 2) { console.log('TEST PASSED — flow completed!'); passed = true; break; }
     }
-  } catch {
-    console.error('Distill button never appeared.');
+    await page.screenshot({ path: '/tmp/ytd-test-final.png' });
+    console.log('Final screenshot: /tmp/ytd-test-final.png');
+  } catch (e) {
+    console.error('Distill button never appeared:', e.message);
     const html = await page.$eval('.ytp-right-controls', el => el.innerHTML).catch(() => 'N/A');
     console.log('[CONTROLS HTML snippet]', html.slice(0, 300));
   }
 
-  console.log('\nDone. Browser stays open — close manually or Ctrl+C.');
-  await new Promise(() => {});
+  await context.close();
+  fs.rmSync(userDataDir, { recursive: true, force: true });
+  console.log('\nDone.');
 })();
