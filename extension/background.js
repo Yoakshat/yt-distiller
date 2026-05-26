@@ -57,13 +57,26 @@ async function analyzeTranscript(transcript) {
   });
 
   if (!response.ok) {
+    const status = response.status;
+    if (status === 401 || status === 403) {
+      throw new Error('Invalid API key — check the extension popup.');
+    }
+    if (status === 429) {
+      throw new Error('DeepSeek rate limit hit — wait a moment and try again.');
+    }
     const errorText = await response.text().catch(() => '');
     throw new Error(
-      `DeepSeek API error: HTTP ${response.status}${errorText ? ' — ' + errorText.substring(0, 200) : ''}`
+      `DeepSeek API error: HTTP ${status}${errorText ? ' — ' + errorText.substring(0, 200) : ''}`
     );
   }
 
-  const data = await response.json();
+  let data;
+  try {
+    const rawText = await response.text();
+    data = JSON.parse(rawText);
+  } catch (e) {
+    throw new Error("Couldn't parse the AI response — try again.");
+  }
   const content = data?.choices?.[0]?.message?.content;
   if (!content) {
     const finish = data?.choices?.[0]?.finish_reason;
@@ -95,7 +108,7 @@ function parseSegments(text) {
       typeof item.end === 'number'
   );
 
-  if (segments.length === 0) throw new Error('DeepSeek returned no valid segments.');
+  if (segments.length === 0) throw new Error('No highlights found for this video.');
 
   return segments;
 }
