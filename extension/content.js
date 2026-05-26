@@ -49,27 +49,31 @@ async function fetchTranscript() {
   // Same-origin fetch: content script on youtube.com fetches youtube.com/api/timedtext with session cookies
   let res;
   try {
-    res = await fetch(track.baseUrl + '&fmt=json3');
+    res = await fetch(track.baseUrl);
   } catch (e) {
     throw new Error('Transcript network error: ' + e.message);
   }
   console.log('[YTD] caption status:', res.status, '| content-type:', res.headers.get('content-type'));
   if (!res.ok) throw new Error(`Transcript fetch failed: HTTP ${res.status}`);
 
-  let data;
+  let xmlDoc;
   try {
     const rawText = await res.text();
-    data = JSON.parse(rawText);
+    xmlDoc = new DOMParser().parseFromString(rawText, 'text/xml');
   } catch (e) {
     throw new Error('Could not load captions — try reloading the page.');
   }
 
-  const segments = (data.events || [])
-    .filter((e) => e.segs?.length > 0)
-    .map((e) => ({
-      text: e.segs.map((s) => s.utf8).join('').trim(),
-      start: e.tStartMs / 1000,
-      duration: (e.dDurationMs || 0) / 1000,
+  if (xmlDoc.querySelector('parsererror')) {
+    throw new Error('Could not load captions — try reloading the page.');
+  }
+
+  const textNodes = Array.from(xmlDoc.querySelectorAll('text'));
+  const segments = textNodes
+    .map((node) => ({
+      text: node.textContent.trim(),
+      start: parseFloat(node.getAttribute('start') || '0'),
+      duration: parseFloat(node.getAttribute('dur') || '0'),
     }))
     .filter((s) => s.text.length > 0);
 
