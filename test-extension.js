@@ -71,29 +71,49 @@ if (!API_KEY) {
     console.warn('Could not detect extension — check chrome://extensions for load errors.');
   }
 
-  // Mock the timedtext API — YouTube blocks unauthenticated fetches from browsers.
-  // Real users are logged in and get real data; we supply a fake transcript for testing.
-  // Format: XML timedtext (the default format returned by YouTube's timedtext API).
-  const MOCK_TRANSCRIPT_XML = `<?xml version="1.0" encoding="utf-8"?><transcript>
-<text start="0" dur="6">Today we ask: why do ideas spread?</text>
-<text start="6" dur="5">The internet rewards outrage, not nuance.</text>
-<text start="11" dur="5">Every share makes the angry article more visible.</text>
-<text start="16" dur="5">This is a well-studied psychological phenomenon.</text>
-<text start="21" dur="7">Researchers call it the outrage loop.</text>
-<text start="28" dur="6">But understanding it can help you break the cycle.</text>
-<text start="34" dur="5">First, recognize your emotional reaction.</text>
-<text start="39" dur="6">Second, slow down before sharing.</text>
-<text start="45" dur="6">Third, look for sources that disagree with you.</text>
-<text start="51" dur="7">Your brain is not designed for the modern information diet.</text>
-<text start="58" dur="6">The key insight: algorithms optimize for engagement, not truth.</text>
-<text start="64" dur="6">And engagement is driven by emotional arousal.</text>
-<text start="70" dur="7">Thanks for watching. Subscribe for more.</text>
-</transcript>`;
+  // Inject mock ytInitialData into every page before any scripts run.
+  // The extension reads window.ytInitialData (or a <script> tag) to extract transcript segments
+  // without making any network request — no timedtext mock needed.
+  const MOCK_INITIAL_DATA = {
+    engagementPanels: [
+      {
+        engagementPanelSectionListRenderer: {
+          panelIdentifier: 'engagement-panel-searchable-transcript',
+          content: {
+            transcriptRenderer: {
+              content: {
+                transcriptSearchPanelRenderer: {
+                  body: {
+                    transcriptSegmentListRenderer: {
+                      initialSegments: [
+                        { transcriptSegmentRenderer: { startMs: '0', endMs: '6000', snippet: { runs: [{ text: 'Today we ask: why do ideas spread?' }] } } },
+                        { transcriptSegmentRenderer: { startMs: '6000', endMs: '11000', snippet: { runs: [{ text: 'The internet rewards outrage, not nuance.' }] } } },
+                        { transcriptSegmentRenderer: { startMs: '11000', endMs: '16000', snippet: { runs: [{ text: 'Every share makes the angry article more visible.' }] } } },
+                        { transcriptSegmentRenderer: { startMs: '16000', endMs: '21000', snippet: { runs: [{ text: 'This is a well-studied psychological phenomenon.' }] } } },
+                        { transcriptSegmentRenderer: { startMs: '21000', endMs: '28000', snippet: { runs: [{ text: 'Researchers call it the outrage loop.' }] } } },
+                        { transcriptSegmentRenderer: { startMs: '28000', endMs: '34000', snippet: { runs: [{ text: 'But understanding it can help you break the cycle.' }] } } },
+                        { transcriptSegmentRenderer: { startMs: '34000', endMs: '39000', snippet: { runs: [{ text: 'First, recognize your emotional reaction.' }] } } },
+                        { transcriptSegmentRenderer: { startMs: '39000', endMs: '45000', snippet: { runs: [{ text: 'Second, slow down before sharing.' }] } } },
+                        { transcriptSegmentRenderer: { startMs: '45000', endMs: '51000', snippet: { runs: [{ text: 'Third, look for sources that disagree with you.' }] } } },
+                        { transcriptSegmentRenderer: { startMs: '51000', endMs: '58000', snippet: { runs: [{ text: 'Your brain is not designed for the modern information diet.' }] } } },
+                        { transcriptSegmentRenderer: { startMs: '58000', endMs: '64000', snippet: { runs: [{ text: 'The key insight: algorithms optimize for engagement, not truth.' }] } } },
+                        { transcriptSegmentRenderer: { startMs: '64000', endMs: '70000', snippet: { runs: [{ text: 'And engagement is driven by emotional arousal.' }] } } },
+                        { transcriptSegmentRenderer: { startMs: '70000', endMs: '77000', snippet: { runs: [{ text: 'Thanks for watching. Subscribe for more.' }] } } },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    ],
+  };
 
-  await context.route('**/api/timedtext**', async (route) => {
-    console.log('[TEST] Intercepted timedtext request — returning mock XML transcript');
-    await route.fulfill({ body: MOCK_TRANSCRIPT_XML, contentType: 'text/xml; charset=utf-8' });
-  });
+  await context.addInitScript((data) => {
+    window.ytInitialData = data;
+  }, MOCK_INITIAL_DATA);
 
   // Open YouTube
   const page = await context.newPage();
