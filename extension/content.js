@@ -1,195 +1,27 @@
-function extractJsonObject(src, startIndex) {
-  let depth = 0;
-  let inString = false;
-  let i = startIndex;
-  while (i < src.length) {
-    const ch = src[i];
-    if (inString) {
-      if (ch === '\\') { i += 2; continue; } // skip escaped char
-      if (ch === '"') inString = false;
-    } else {
-      if (ch === '"') { inString = true; }
-      else if (ch === '{') { depth++; }
-      else if (ch === '}') { depth--; if (depth === 0) return src.slice(startIndex, i + 1); }
-    }
-    i++;
-  }
-  return null;
-}
-
-
-function getInitialData() {
-  for (const script of document.querySelectorAll('script')) {
-    const text = script.textContent;
-    if (!text.includes('ytInitialData')) continue;
-    const marker = 'ytInitialData';
-    const idx = text.indexOf(marker);
-    if (idx === -1) continue;
-    // advance past `ytInitialData\s*=\s*`
-    let start = idx + marker.length;
-    while (start < text.length && /[\s=]/.test(text[start])) start++;
-    if (text[start] !== '{') continue;
-    const jsonStr = extractJsonObject(text, start);
-    if (jsonStr) {
-      try { return JSON.parse(jsonStr); } catch {}
-    }
-  }
-  // Fall back to window.ytInitialData (injected by tests or available as a global)
-  if (typeof window !== 'undefined' && window.ytInitialData) return window.ytInitialData;
-  return null;
-}
-
-function getYtcfgValue(key) {
-  for (const script of document.querySelectorAll('script')) {
-    const text = script.textContent;
-    if (!text.includes(key)) continue;
-    const match = text.match(new RegExp('"' + key + '"\\s*:\\s*"([^"]+)"'));
-    if (match) return match[1];
-  }
-  return null;
-}
-
-function parseSegments(initialSegments) {
-  return initialSegments
-    .map((item) => {
-      const seg = item?.transcriptSegmentRenderer;
-      if (!seg) return null;
-      const text = (seg.snippet?.runs || []).map((r) => r.text).join('').trim();
-      const start = parseInt(seg.startMs || '0', 10) / 1000;
-      const duration = seg.endMs != null
-        ? (parseInt(seg.endMs, 10) - parseInt(seg.startMs || '0', 10)) / 1000
-        : 0;
-      return { text, start, duration };
-    })
-    .filter((s) => s && s.text.length > 0);
-}
-
+// Fetches transcript by messaging content-main.js (which runs in the page's main world
+// with access to ytcfg, real cookies, ytInitialPlayerResponse, etc.)
 async function fetchTranscript() {
-  const data = getInitialData();
-  if (!data) throw new Error('Could not read video data — try reloading the page.');
-
-  const panels = data?.engagementPanels;
-  const panel = Array.isArray(panels) && panels.find(
-    (p) => p?.engagementPanelSectionListRenderer?.panelIdentifier === 'engagement-panel-searchable-transcript'
-  );
-
-  if (panel) {
-    const content = panel.engagementPanelSectionListRenderer?.content;
-
-    // Case A: inline segments
-    const inlineSegments =
-      content?.transcriptRenderer
-        ?.content?.transcriptSearchPanelRenderer
-        ?.body?.transcriptSegmentListRenderer
-        ?.initialSegments;
-    if (Array.isArray(inlineSegments) && inlineSegments.length > 0) {
-      const segments = parseSegments(inlineSegments);
-      if (segments.length) return segments;
-    }
-
-    // Case B: innertube continuation
-    const continuationToken =
-      content?.continuationItemRenderer
-        ?.continuationEndpoint?.getTranscriptEndpoint?.params;
-    console.log('[YTD] innertube continuationToken:', continuationToken ? continuationToken.slice(0, 40) + '…' : 'none');
-    if (continuationToken) {
-      const segments = await fetchViaInnertube(continuationToken);
-      if (segments) return segments;
-    }
-  }
-
-  // Fallback: timedtext URL from ytInitialPlayerResponse, fetched without cookies
-  console.log('[YTD] falling back to timedtext');
-  const segments = await fetchViaTimedtext(data);
-  if (segments) return segments;
-
+  const segments = await fetchViaMainWorld();
+  if (segments && segments.length) return segments;
   throw new Error('No transcript available for this video.');
 }
 
-async function fetchViaInnertube(continuationToken) {
-  const apiKey = getYtcfgValue('INNERTUBE_API_KEY') || '';
-  const clientVersion = getYtcfgValue('INNERTUBE_CLIENT_VERSION') || '';
-  const visitorData = getYtcfgValue('VISITOR_DATA') || '';
+function fetchViaMainWorld() {
+  return new Promise((resolve) => {
+    const msgId = 'ytd-' + Math.random().toString(36).slice(2);
 
-  try {
-    const res = await fetch(`/youtubei/v1/get_transcript?key=${apiKey}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-YouTube-Client-Name': '1',
-        'X-YouTube-Client-Version': clientVersion,
-      },
-      body: JSON.stringify({
-        context: { client: { clientName: 'WEB', clientVersion, hl: 'en', visitorData } },
-        params: continuationToken,
-      }),
-    });
-    if (!res.ok) return null;
-    const responseData = await res.json().catch(() => null);
-    if (!responseData) return null;
+    const handler = (event) => {
+      if (event.source !== window || event.data?.type !== 'YTD_TRANSCRIPT_RESULT' || event.data?.msgId !== msgId) return;
+      window.removeEventListener('message', handler);
+      resolve(event.data.segments || null);
+    };
+    window.addEventListener('message', handler);
 
-    for (const action of responseData?.actions || []) {
-      const segs =
-        action?.updateEngagementPanelAction
-          ?.content?.transcriptRenderer
-          ?.content?.transcriptSearchPanelRenderer
-          ?.body?.transcriptSegmentListRenderer
-          ?.initialSegments;
-      if (Array.isArray(segs) && segs.length > 0) {
-        const segments = parseSegments(segs);
-        if (segments.length) return segments;
-      }
-    }
-  } catch {}
-  return null;
-}
+    // content-main.js listens for this message and handles the transcript fetch
+    window.postMessage({ type: 'YTD_FETCH_TRANSCRIPT', msgId }, '*');
 
-async function fetchViaTimedtext(initialData) {
-  // Extract caption URL from ytInitialPlayerResponse in script tags
-  let playerData = null;
-  for (const script of document.querySelectorAll('script')) {
-    const text = script.textContent;
-    if (!text.includes('ytInitialPlayerResponse')) continue;
-    const marker = 'ytInitialPlayerResponse';
-    const idx = text.indexOf(marker);
-    let start = idx + marker.length;
-    while (start < text.length && /[\s=]/.test(text[start])) start++;
-    console.log('[YTD] timedtext: marker found, next char:', JSON.stringify(text[start]));
-    if (text[start] !== '{') continue;
-    const jsonStr = extractJsonObject(text, start);
-    if (jsonStr) { try { playerData = JSON.parse(jsonStr); break; } catch (e) { console.log('[YTD] timedtext parse error:', e.message); } }
-  }
-  if (!playerData) { console.log('[YTD] timedtext: no playerData'); return null; }
-
-  const tracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-  console.log('[YTD] timedtext: tracks found:', tracks?.length ?? 0);
-  if (!tracks?.length) return null;
-
-  const track = tracks.find((t) => t.languageCode === 'en') || tracks[0];
-  console.log('[YTD] timedtext: using track lang:', track?.languageCode, 'url:', track?.baseUrl?.slice(0, 80));
-  if (!track?.baseUrl) return null;
-
-  try {
-    // Omit credentials: the URL is pre-signed; cookies cause YouTube to redirect to HTML
-    const res = await fetch(track.baseUrl, { credentials: 'omit' });
-    console.log('[YTD] timedtext fetch status:', res.status, 'content-type:', res.headers.get('content-type'));
-    if (!res.ok) return null;
-    const rawText = await res.text();
-    console.log('[YTD] timedtext response prefix:', rawText.slice(0, 120));
-    const xmlDoc = new DOMParser().parseFromString(rawText, 'text/xml');
-    if (xmlDoc.querySelector('parsererror')) { console.log('[YTD] timedtext: XML parse error'); return null; }
-
-    const segments = Array.from(xmlDoc.querySelectorAll('text'))
-      .map((node) => ({
-        text: node.textContent.trim(),
-        start: parseFloat(node.getAttribute('start') || '0'),
-        duration: parseFloat(node.getAttribute('dur') || '0'),
-      }))
-      .filter((s) => s.text.length > 0);
-    console.log('[YTD] timedtext: segments extracted:', segments.length);
-    return segments.length ? segments : null;
-  } catch (e) { console.log('[YTD] timedtext fetch error:', e.message); }
-  return null;
+    setTimeout(() => { window.removeEventListener('message', handler); resolve(null); }, 15000);
+  });
 }
 
 function showError(message) {
