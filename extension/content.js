@@ -39,28 +39,8 @@ function getInitialData() {
   return null;
 }
 
-function fetchTranscript() {
-  const data = getInitialData();
-  if (!data) throw new Error('Could not read video data — try reloading the page.');
-
-  const panels = data?.engagementPanels;
-  if (!Array.isArray(panels)) throw new Error('No transcript available for this video.');
-
-  const panel = panels.find(
-    (p) => p?.engagementPanelSectionListRenderer?.panelIdentifier === 'engagement-panel-searchable-transcript'
-  );
-  if (!panel) throw new Error('No transcript available for this video.');
-
-  const initialSegments =
-    panel.engagementPanelSectionListRenderer
-      ?.content?.transcriptRenderer
-      ?.content?.transcriptSearchPanelRenderer
-      ?.body?.transcriptSegmentListRenderer
-      ?.initialSegments;
-
-  if (!Array.isArray(initialSegments)) throw new Error('Could not parse transcript for this video.');
-
-  const segments = initialSegments
+function parseSegments(initialSegments) {
+  return initialSegments
     .map((item) => {
       const seg = item?.transcriptSegmentRenderer;
       if (!seg) return null;
@@ -72,7 +52,92 @@ function fetchTranscript() {
       return { text, start, duration };
     })
     .filter((s) => s && s.text.length > 0);
+}
 
+async function fetchTranscript() {
+  const data = getInitialData();
+  if (!data) throw new Error('Could not read video data — try reloading the page.');
+
+  const panels = data?.engagementPanels;
+  if (!Array.isArray(panels)) throw new Error('No transcript available for this video.');
+
+  const panel = panels.find(
+    (p) => p?.engagementPanelSectionListRenderer?.panelIdentifier === 'engagement-panel-searchable-transcript'
+  );
+  if (!panel) throw new Error('No transcript available for this video.');
+
+  const content = panel.engagementPanelSectionListRenderer?.content;
+
+  // Case A: inline segments (rare)
+  const inlineSegments =
+    content?.transcriptRenderer
+      ?.content?.transcriptSearchPanelRenderer
+      ?.body?.transcriptSegmentListRenderer
+      ?.initialSegments;
+
+  if (Array.isArray(inlineSegments) && inlineSegments.length > 0) {
+    const segments = parseSegments(inlineSegments);
+    if (!segments.length) throw new Error('Could not parse transcript for this video.');
+    return segments;
+  }
+
+  // Case B: continuation token (common)
+  const continuationToken =
+    content?.continuationItemRenderer
+      ?.continuationEndpoint?.getTranscriptEndpoint?.params;
+
+  if (!continuationToken) throw new Error('No transcript available for this video.');
+
+  const apiKey = window.ytcfg?.get?.('INNERTUBE_API_KEY') || '';
+  const clientVersion = window.ytcfg?.get?.('INNERTUBE_CLIENT_VERSION') || '';
+
+  let response;
+  try {
+    response = await fetch(`/youtubei/v1/get_transcript?key=${apiKey}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-YouTube-Client-Name': '1',
+        'X-YouTube-Client-Version': clientVersion,
+      },
+      body: JSON.stringify({
+        context: { client: { clientName: 'WEB', clientVersion, hl: 'en' } },
+        params: continuationToken,
+      }),
+    });
+  } catch {
+    throw new Error('Could not load transcript — try reloading the page.');
+  }
+
+  if (!response.ok) throw new Error('Could not load transcript — try reloading the page.');
+
+  let responseData;
+  try {
+    responseData = await response.json();
+  } catch {
+    throw new Error('Could not load transcript — try reloading the page.');
+  }
+
+  const actions = responseData?.actions;
+  if (!Array.isArray(actions)) throw new Error('Could not parse transcript for this video.');
+
+  let actionSegments = null;
+  for (const action of actions) {
+    const segs =
+      action?.updateEngagementPanelAction
+        ?.content?.transcriptRenderer
+        ?.content?.transcriptSearchPanelRenderer
+        ?.body?.transcriptSegmentListRenderer
+        ?.initialSegments;
+    if (Array.isArray(segs) && segs.length > 0) {
+      actionSegments = segs;
+      break;
+    }
+  }
+
+  if (!actionSegments) throw new Error('Could not parse transcript for this video.');
+
+  const segments = parseSegments(actionSegments);
   if (!segments.length) throw new Error('Could not parse transcript for this video.');
   return segments;
 }
@@ -138,7 +203,7 @@ async function startDistill() {
 
   let transcript;
   try {
-    transcript = fetchTranscript();
+    transcript = await fetchTranscript();
   } catch (err) {
     showError(err.message);
     reset();
