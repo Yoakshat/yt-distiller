@@ -1,9 +1,36 @@
+function extractJsonObject(src, startIndex) {
+  let depth = 0;
+  let inString = false;
+  let i = startIndex;
+  while (i < src.length) {
+    const ch = src[i];
+    if (inString) {
+      if (ch === '\\') { i += 2; continue; } // skip escaped char
+      if (ch === '"') inString = false;
+    } else {
+      if (ch === '"') { inString = true; }
+      else if (ch === '{') { depth++; }
+      else if (ch === '}') { depth--; if (depth === 0) return src.slice(startIndex, i + 1); }
+    }
+    i++;
+  }
+  return null;
+}
+
 function getPlayerDataFromDOM() {
   for (const script of document.querySelectorAll('script')) {
-    if (!script.textContent.includes('ytInitialPlayerResponse')) continue;
-    const m = script.textContent.match(/ytInitialPlayerResponse\s*=\s*({.+?})\s*;/);
-    if (m) {
-      try { return JSON.parse(m[1]); } catch {}
+    const text = script.textContent;
+    if (!text.includes('ytInitialPlayerResponse')) continue;
+    const marker = 'ytInitialPlayerResponse';
+    const idx = text.indexOf(marker);
+    if (idx === -1) continue;
+    // advance past `ytInitialPlayerResponse\s*=\s*`
+    let start = idx + marker.length;
+    while (start < text.length && /[\s=]/.test(text[start])) start++;
+    if (text[start] !== '{') continue;
+    const jsonStr = extractJsonObject(text, start);
+    if (jsonStr) {
+      try { return JSON.parse(jsonStr); } catch {}
     }
   }
   return null;
@@ -29,7 +56,13 @@ async function fetchTranscript() {
   console.log('[YTD] caption status:', res.status, '| content-type:', res.headers.get('content-type'));
   if (!res.ok) throw new Error(`Transcript fetch failed: HTTP ${res.status}`);
 
-  const data = await res.json();
+  let data;
+  try {
+    const rawText = await res.text();
+    data = JSON.parse(rawText);
+  } catch (e) {
+    throw new Error('Could not load captions — try reloading the page.');
+  }
 
   const segments = (data.events || [])
     .filter((e) => e.segs?.length > 0)
@@ -130,7 +163,7 @@ async function startDistill() {
 
   if (!result || !result.ok) {
     const msg = result?.error
-      ? (result.error.includes('API key') || result.error.includes('api_key')
+      ? (result.error.includes('No DeepSeek API key configured')
           ? 'No API key — open the extension popup to set one.'
           : result.error)
       : 'Something went wrong. Please try again.';
