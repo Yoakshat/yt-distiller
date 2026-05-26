@@ -17,14 +17,15 @@ function extractJsonObject(src, startIndex) {
   return null;
 }
 
-function getPlayerDataFromDOM() {
+
+function getInitialData() {
   for (const script of document.querySelectorAll('script')) {
     const text = script.textContent;
-    if (!text.includes('ytInitialPlayerResponse')) continue;
-    const marker = 'ytInitialPlayerResponse';
+    if (!text.includes('ytInitialData')) continue;
+    const marker = 'ytInitialData';
     const idx = text.indexOf(marker);
     if (idx === -1) continue;
-    // advance past `ytInitialPlayerResponse\s*=\s*`
+    // advance past `ytInitialData\s*=\s*`
     let start = idx + marker.length;
     while (start < text.length && /[\s=]/.test(text[start])) start++;
     if (text[start] !== '{') continue;
@@ -33,49 +34,44 @@ function getPlayerDataFromDOM() {
       try { return JSON.parse(jsonStr); } catch {}
     }
   }
+  // Fall back to window.ytInitialData (injected by tests or available as a global)
+  if (typeof window !== 'undefined' && window.ytInitialData) return window.ytInitialData;
   return null;
 }
 
-async function fetchTranscript() {
-  const playerData = getPlayerDataFromDOM();
-  if (!playerData) throw new Error('Could not read video data — try reloading the page.');
+function fetchTranscript() {
+  const data = getInitialData();
+  if (!data) throw new Error('Could not read video data — try reloading the page.');
 
-  const tracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-  if (!tracks?.length) throw new Error('No captions available for this video.');
+  const panels = data?.engagementPanels;
+  if (!Array.isArray(panels)) throw new Error('No transcript available for this video.');
 
-  const track = tracks.find((t) => t.languageCode === 'en') || tracks[0];
-  console.log('[YTD] track lang:', track.languageCode, '| kind:', track.kind, '| url prefix:', track.baseUrl?.substring(0, 80));
+  const panel = panels.find(
+    (p) => p?.engagementPanelSectionListRenderer?.panelIdentifier === 'engagement-panel-searchable-transcript'
+  );
+  if (!panel) throw new Error('No transcript available for this video.');
 
-  // Same-origin fetch: content script on youtube.com fetches youtube.com/api/timedtext with session cookies
-  let res;
-  try {
-    res = await fetch(track.baseUrl);
-  } catch (e) {
-    throw new Error('Transcript network error: ' + e.message);
-  }
-  console.log('[YTD] caption status:', res.status, '| content-type:', res.headers.get('content-type'));
-  if (!res.ok) throw new Error(`Transcript fetch failed: HTTP ${res.status}`);
+  const initialSegments =
+    panel.engagementPanelSectionListRenderer
+      ?.content?.transcriptRenderer
+      ?.content?.transcriptSearchPanelRenderer
+      ?.body?.transcriptSegmentListRenderer
+      ?.initialSegments;
 
-  let xmlDoc;
-  try {
-    const rawText = await res.text();
-    xmlDoc = new DOMParser().parseFromString(rawText, 'text/xml');
-  } catch (e) {
-    throw new Error('Could not load captions — try reloading the page.');
-  }
+  if (!Array.isArray(initialSegments)) throw new Error('Could not parse transcript for this video.');
 
-  if (xmlDoc.querySelector('parsererror')) {
-    throw new Error('Could not load captions — try reloading the page.');
-  }
-
-  const textNodes = Array.from(xmlDoc.querySelectorAll('text'));
-  const segments = textNodes
-    .map((node) => ({
-      text: node.textContent.trim(),
-      start: parseFloat(node.getAttribute('start') || '0'),
-      duration: parseFloat(node.getAttribute('dur') || '0'),
-    }))
-    .filter((s) => s.text.length > 0);
+  const segments = initialSegments
+    .map((item) => {
+      const seg = item?.transcriptSegmentRenderer;
+      if (!seg) return null;
+      const text = (seg.snippet?.runs || []).map((r) => r.text).join('').trim();
+      const start = parseInt(seg.startMs || '0', 10) / 1000;
+      const duration = seg.endMs != null
+        ? (parseInt(seg.endMs, 10) - parseInt(seg.startMs || '0', 10)) / 1000
+        : 0;
+      return { text, start, duration };
+    })
+    .filter((s) => s && s.text.length > 0);
 
   if (!segments.length) throw new Error('Could not parse transcript for this video.');
   return segments;
@@ -142,7 +138,7 @@ async function startDistill() {
 
   let transcript;
   try {
-    transcript = await fetchTranscript();
+    transcript = fetchTranscript();
   } catch (err) {
     showError(err.message);
     reset();
