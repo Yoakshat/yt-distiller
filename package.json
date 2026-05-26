@@ -1,0 +1,24 @@
+{
+  "name": "main",
+  "version": "1.0.0",
+  "main": "generate-icons.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Yoakshat/yt-distiller.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Yoakshat/yt-distiller/issues"
+  },
+  "homepage": "https://github.com/Yoakshat/yt-distiller#readme",
+  "description": "",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "playwright": "^1.60.0"
+  }
+}

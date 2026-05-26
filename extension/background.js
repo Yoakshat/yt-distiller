@@ -1,15 +1,4 @@
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message.type === 'FETCH_TRANSCRIPT_URL') {
-    fetch(message.url)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((data) => sendResponse({ ok: true, data }))
-      .catch((err) => sendResponse({ ok: false, error: err.message }));
-    return true;
-  }
-
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'ANALYZE_TRANSCRIPT') {
     analyzeTranscript(message.transcript)
       .then((segments) => sendResponse({ ok: true, segments }))
@@ -60,7 +49,7 @@ async function analyzeTranscript(transcript) {
       Authorization: `Bearer ${deepseekApiKey}`,
     },
     body: JSON.stringify({
-      model: 'deepseek-v4-pro',
+      model: 'deepseek-chat',
       max_tokens: 2048,
       temperature: 0,
       messages: [systemMessage, userMessage],
@@ -70,13 +59,17 @@ async function analyzeTranscript(transcript) {
   if (!response.ok) {
     const errorText = await response.text().catch(() => '');
     throw new Error(
-      `DeepSeek API error: HTTP ${response.status}${errorText ? ' — ' + errorText : ''}`
+      `DeepSeek API error: HTTP ${response.status}${errorText ? ' — ' + errorText.substring(0, 200) : ''}`
     );
   }
 
   const data = await response.json();
   const content = data?.choices?.[0]?.message?.content;
-  if (!content) throw new Error('DeepSeek returned an empty response.');
+  if (!content) {
+    const finish = data?.choices?.[0]?.finish_reason;
+    const model = data?.model;
+    throw new Error(`DeepSeek empty (model=${model}, finish=${finish}, choices=${data?.choices?.length ?? 'N/A'})`);
+  }
 
   return parseSegments(content);
 }

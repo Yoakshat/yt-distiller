@@ -1,65 +1,46 @@
-function getYtInitialPlayerResponse() {
-  return new Promise((resolve) => {
-    window.addEventListener('message', function handler(e) {
-      if (e.source === window && e.data?.type === 'YTD_TRANSCRIPT_DATA') {
-        window.removeEventListener('message', handler);
-        resolve(e.data.payload);
-      }
-    });
-
-    const s = document.createElement('script');
-    s.textContent = `
-      const data = window.ytInitialPlayerResponse?.captions
-        ?.playerCaptionsTracklistRenderer?.captionTracks;
-      window.postMessage({ type: 'YTD_TRANSCRIPT_DATA', payload: data || null }, '*');
-    `;
-    document.documentElement.appendChild(s);
-    s.remove();
-  });
+function getPlayerDataFromDOM() {
+  for (const script of document.querySelectorAll('script')) {
+    if (!script.textContent.includes('ytInitialPlayerResponse')) continue;
+    const m = script.textContent.match(/ytInitialPlayerResponse\s*=\s*({.+?})\s*;/);
+    if (m) {
+      try { return JSON.parse(m[1]); } catch {}
+    }
+  }
+  return null;
 }
 
 async function fetchTranscript() {
-  const captionTracks = await getYtInitialPlayerResponse();
+  const playerData = getPlayerDataFromDOM();
+  if (!playerData) throw new Error('Could not read video data — try reloading the page.');
 
-  if (!captionTracks || captionTracks.length === 0) {
-    throw new Error('No captions available for this video.');
+  const tracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+  if (!tracks?.length) throw new Error('No captions available for this video.');
+
+  const track = tracks.find((t) => t.languageCode === 'en') || tracks[0];
+  console.log('[YTD] track lang:', track.languageCode, '| kind:', track.kind, '| url prefix:', track.baseUrl?.substring(0, 80));
+
+  // Same-origin fetch: content script on youtube.com fetches youtube.com/api/timedtext with session cookies
+  let res;
+  try {
+    res = await fetch(track.baseUrl + '&fmt=json3');
+  } catch (e) {
+    throw new Error('Transcript network error: ' + e.message);
   }
+  console.log('[YTD] caption status:', res.status, '| content-type:', res.headers.get('content-type'));
+  if (!res.ok) throw new Error(`Transcript fetch failed: HTTP ${res.status}`);
 
-  const track =
-    captionTracks.find((t) => t.languageCode === 'en') || captionTracks[0];
+  const data = await res.json();
 
-  const url = track.baseUrl + '&fmt=json3';
+  const segments = (data.events || [])
+    .filter((e) => e.segs?.length > 0)
+    .map((e) => ({
+      text: e.segs.map((s) => s.utf8).join('').trim(),
+      start: e.tStartMs / 1000,
+      duration: (e.dDurationMs || 0) / 1000,
+    }))
+    .filter((s) => s.text.length > 0);
 
-  const result = await new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage({ type: 'FETCH_TRANSCRIPT_URL', url }, (response) => {
-      if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-      else resolve(response);
-    });
-  });
-
-  if (!result.ok) throw new Error(`Failed to fetch transcript: ${result.error}`);
-
-  const data = result.data;
-
-  if (!Array.isArray(data.events)) {
-    throw new Error('Unexpected transcript format: missing events array.');
-  }
-
-  const segments = data.events
-    .filter((event) => event.segs && event.segs.length > 0)
-    .map((event) => {
-      const text = event.segs
-        .map((seg) => seg.utf8)
-        .join('')
-        .trim();
-      return {
-        text,
-        start: event.tStartMs / 1000,
-        duration: (event.dDurationMs || 0) / 1000,
-      };
-    })
-    .filter((segment) => segment.text.length > 0);
-
+  if (!segments.length) throw new Error('Could not parse transcript for this video.');
   return segments;
 }
 
@@ -69,32 +50,19 @@ function showError(message) {
     errorDiv = document.createElement('div');
     errorDiv.id = 'ytd-error';
     errorDiv.style.cssText = [
-      'position: absolute',
-      'bottom: 48px',
-      'right: 8px',
-      'background: rgba(0,0,0,0.85)',
-      'color: #fff',
-      'font-size: 12px',
-      'padding: 6px 10px',
-      'border-radius: 4px',
-      'z-index: 9999',
-      'max-width: 260px',
-      'pointer-events: none',
+      'position:absolute', 'bottom:48px', 'right:8px',
+      'background:rgba(0,0,0,0.85)', 'color:#fff', 'font-size:12px',
+      'padding:6px 10px', 'border-radius:4px', 'z-index:9999',
+      'max-width:260px', 'pointer-events:none',
     ].join(';');
     const controls = document.querySelector('.ytp-right-controls');
-    if (controls) {
-      controls.style.position = 'relative';
-      controls.appendChild(errorDiv);
-    } else {
-      document.body.appendChild(errorDiv);
-    }
+    if (controls) { controls.style.position = 'relative'; controls.appendChild(errorDiv); }
+    else document.body.appendChild(errorDiv);
   }
   errorDiv.textContent = message;
   errorDiv.style.display = 'block';
   clearTimeout(errorDiv._hideTimer);
-  errorDiv._hideTimer = setTimeout(() => {
-    errorDiv.style.display = 'none';
-  }, 4000);
+  errorDiv._hideTimer = setTimeout(() => { errorDiv.style.display = 'none'; }, 5000);
 }
 
 function playSegments(segments) {
@@ -102,24 +70,17 @@ function playSegments(segments) {
   if (!video) throw new Error('YouTube player not found');
 
   segments.sort((a, b) => a.start - b.start);
-
   let currentIdx = 0;
-
   const btn = document.getElementById('ytd-distill-btn');
 
   function showSegment(idx) {
     if (idx >= segments.length) {
-      if (btn) {
-        btn.textContent = 'Distill ✶';
-        btn.disabled = false;
-      }
+      if (btn) { btn.textContent = 'Distill ✶'; btn.disabled = false; }
       video.removeEventListener('timeupdate', onTimeUpdate);
       return;
     }
     const seg = segments[idx];
-    if (btn) {
-      btn.textContent = `${idx + 1} / ${segments.length} ✶`;
-    }
+    if (btn) btn.textContent = `${idx + 1} / ${segments.length} ✶`;
     video.currentTime = seg.start;
     video.play();
   }
@@ -127,10 +88,7 @@ function playSegments(segments) {
   function onTimeUpdate() {
     const seg = segments[currentIdx];
     if (!seg) return;
-    if (video.currentTime >= seg.end) {
-      currentIdx++;
-      showSegment(currentIdx);
-    }
+    if (video.currentTime >= seg.end) { currentIdx++; showSegment(currentIdx); }
   }
 
   video.addEventListener('timeupdate', onTimeUpdate);
@@ -142,29 +100,27 @@ async function startDistill() {
   if (!btn) return;
 
   const reset = () => { btn.textContent = 'Distill ✶'; btn.disabled = false; };
-
   btn.disabled = true;
-  btn.textContent = 'Analyzing…';
+  btn.textContent = 'Fetching…';
 
   let transcript;
   try {
     transcript = await fetchTranscript();
   } catch (err) {
-    showError(err.message.includes('No captions') ? 'No captions available for this video.' : err.message);
+    showError(err.message);
     reset();
     return;
   }
 
+  btn.textContent = 'Analyzing…';
+
   let result;
   try {
     result = await new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage(
-        { type: 'ANALYZE_TRANSCRIPT', transcript },
-        (response) => {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve(response);
-        }
-      );
+      chrome.runtime.sendMessage({ type: 'ANALYZE_TRANSCRIPT', transcript }, (response) => {
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else resolve(response);
+      });
     });
   } catch (err) {
     showError('Extension error: ' + err.message);
@@ -178,11 +134,13 @@ async function startDistill() {
           ? 'No API key — open the extension popup to set one.'
           : result.error)
       : 'Something went wrong. Please try again.';
+    console.log('[YTD] error:', msg, '| result:', JSON.stringify(result));
     showError(msg);
     reset();
     return;
   }
 
+  console.log('[YTD] segments received:', JSON.stringify(result.segments));
   try {
     playSegments(result.segments);
   } catch (err) {
@@ -194,45 +152,22 @@ async function startDistill() {
 function injectDistillButton() {
   const startTime = Date.now();
   const interval = setInterval(() => {
-    if (Date.now() - startTime > 10000) {
-      clearInterval(interval);
-      return;
-    }
-
+    if (Date.now() - startTime > 10000) { clearInterval(interval); return; }
     const toolbar = document.querySelector('.ytp-right-controls');
     if (!toolbar) return;
-
-    if (document.getElementById('ytd-distill-btn')) {
-      clearInterval(interval);
-      return;
-    }
+    if (document.getElementById('ytd-distill-btn')) { clearInterval(interval); return; }
 
     const btn = document.createElement('button');
     btn.id = 'ytd-distill-btn';
     btn.textContent = 'Distill ✶';
     btn.style.cssText = [
-      'height: 28px',
-      'color: #fff',
-      'background: transparent',
-      'border: none',
-      'cursor: pointer',
-      'font-size: 13px',
-      'font-weight: 600',
-      'padding: 0 8px',
-      'letter-spacing: 0.5px',
-      'opacity: 1',
-      'vertical-align: middle',
+      'height:28px', 'color:#fff', 'background:transparent', 'border:none',
+      'cursor:pointer', 'font-size:13px', 'font-weight:600', 'padding:0 8px',
+      'letter-spacing:0.5px', 'opacity:1', 'vertical-align:middle',
     ].join(';');
-
-    btn.addEventListener('mouseenter', () => {
-      btn.style.opacity = '0.7';
-    });
-    btn.addEventListener('mouseleave', () => {
-      btn.style.opacity = '1';
-    });
-
+    btn.addEventListener('mouseenter', () => { btn.style.opacity = '0.7'; });
+    btn.addEventListener('mouseleave', () => { btn.style.opacity = '1'; });
     btn.addEventListener('click', startDistill);
-
     toolbar.insertBefore(btn, toolbar.firstChild);
     clearInterval(interval);
   }, 500);

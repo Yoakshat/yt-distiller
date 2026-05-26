@@ -1,10 +1,10 @@
 # Tasks
 
 ## In Progress
-_nothing yet_
+_nothing_
 
 ## Up Next
-_nothing — all tasks shipped_
+_nothing_
 
 ## Backlog
-_nothing yet_
+_nothing_
