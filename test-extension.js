@@ -73,25 +73,26 @@ if (!API_KEY) {
 
   // Mock the timedtext API — YouTube blocks unauthenticated fetches from browsers.
   // Real users are logged in and get real data; we supply a fake transcript for testing.
-  const MOCK_TRANSCRIPT = { events: [
-    { tStartMs: 0,     dDurationMs: 6000,  segs: [{ utf8: 'Today we ask: why do ideas spread?' }] },
-    { tStartMs: 6000,  dDurationMs: 5000,  segs: [{ utf8: 'The internet rewards outrage, not nuance.' }] },
-    { tStartMs: 11000, dDurationMs: 5000,  segs: [{ utf8: 'Every share makes the angry article more visible.' }] },
-    { tStartMs: 16000, dDurationMs: 5000,  segs: [{ utf8: 'This is a well-studied psychological phenomenon.' }] },
-    { tStartMs: 21000, dDurationMs: 7000,  segs: [{ utf8: 'Researchers call it the outrage loop.' }] },
-    { tStartMs: 28000, dDurationMs: 6000,  segs: [{ utf8: 'But understanding it can help you break the cycle.' }] },
-    { tStartMs: 34000, dDurationMs: 5000,  segs: [{ utf8: 'First, recognize your emotional reaction.' }] },
-    { tStartMs: 39000, dDurationMs: 6000,  segs: [{ utf8: 'Second, slow down before sharing.' }] },
-    { tStartMs: 45000, dDurationMs: 6000,  segs: [{ utf8: 'Third, look for sources that disagree with you.' }] },
-    { tStartMs: 51000, dDurationMs: 7000,  segs: [{ utf8: 'Your brain is not designed for the modern information diet.' }] },
-    { tStartMs: 58000, dDurationMs: 6000,  segs: [{ utf8: 'The key insight: algorithms optimize for engagement, not truth.' }] },
-    { tStartMs: 64000, dDurationMs: 6000,  segs: [{ utf8: 'And engagement is driven by emotional arousal.' }] },
-    { tStartMs: 70000, dDurationMs: 7000,  segs: [{ utf8: 'Thanks for watching. Subscribe for more.' }] },
-  ]};
+  // Format: XML timedtext (the default format returned by YouTube's timedtext API).
+  const MOCK_TRANSCRIPT_XML = `<?xml version="1.0" encoding="utf-8"?><transcript>
+<text start="0" dur="6">Today we ask: why do ideas spread?</text>
+<text start="6" dur="5">The internet rewards outrage, not nuance.</text>
+<text start="11" dur="5">Every share makes the angry article more visible.</text>
+<text start="16" dur="5">This is a well-studied psychological phenomenon.</text>
+<text start="21" dur="7">Researchers call it the outrage loop.</text>
+<text start="28" dur="6">But understanding it can help you break the cycle.</text>
+<text start="34" dur="5">First, recognize your emotional reaction.</text>
+<text start="39" dur="6">Second, slow down before sharing.</text>
+<text start="45" dur="6">Third, look for sources that disagree with you.</text>
+<text start="51" dur="7">Your brain is not designed for the modern information diet.</text>
+<text start="58" dur="6">The key insight: algorithms optimize for engagement, not truth.</text>
+<text start="64" dur="6">And engagement is driven by emotional arousal.</text>
+<text start="70" dur="7">Thanks for watching. Subscribe for more.</text>
+</transcript>`;
 
   await context.route('**/api/timedtext**', async (route) => {
-    console.log('[TEST] Intercepted timedtext request — returning mock transcript');
-    await route.fulfill({ json: MOCK_TRANSCRIPT });
+    console.log('[TEST] Intercepted timedtext request — returning mock XML transcript');
+    await route.fulfill({ body: MOCK_TRANSCRIPT_XML, contentType: 'text/xml; charset=utf-8' });
   });
 
   // Open YouTube
