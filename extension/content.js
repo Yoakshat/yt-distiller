@@ -39,6 +39,16 @@ function getInitialData() {
   return null;
 }
 
+function getYtcfgValue(key) {
+  for (const script of document.querySelectorAll('script')) {
+    const text = script.textContent;
+    if (!text.includes(key)) continue;
+    const match = text.match(new RegExp('"' + key + '"\\s*:\\s*"([^"]+)"'));
+    if (match) return match[1];
+  }
+  return null;
+}
+
 function parseSegments(initialSegments) {
   return initialSegments
     .map((item) => {
@@ -88,8 +98,8 @@ async function fetchTranscript() {
 
   if (!continuationToken) throw new Error('No transcript available for this video.');
 
-  const apiKey = window.ytcfg?.get?.('INNERTUBE_API_KEY') || '';
-  const clientVersion = window.ytcfg?.get?.('INNERTUBE_CLIENT_VERSION') || '';
+  const apiKey = getYtcfgValue('INNERTUBE_API_KEY') || '';
+  const clientVersion = getYtcfgValue('INNERTUBE_CLIENT_VERSION') || '';
 
   let response;
   try {
