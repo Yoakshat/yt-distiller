@@ -69,41 +69,48 @@ async function fetchTranscript() {
   if (!data) throw new Error('Could not read video data — try reloading the page.');
 
   const panels = data?.engagementPanels;
-  if (!Array.isArray(panels)) throw new Error('No transcript available for this video.');
-
-  const panel = panels.find(
+  const panel = Array.isArray(panels) && panels.find(
     (p) => p?.engagementPanelSectionListRenderer?.panelIdentifier === 'engagement-panel-searchable-transcript'
   );
-  if (!panel) throw new Error('No transcript available for this video.');
 
-  const content = panel.engagementPanelSectionListRenderer?.content;
+  if (panel) {
+    const content = panel.engagementPanelSectionListRenderer?.content;
 
-  // Case A: inline segments (rare)
-  const inlineSegments =
-    content?.transcriptRenderer
-      ?.content?.transcriptSearchPanelRenderer
-      ?.body?.transcriptSegmentListRenderer
-      ?.initialSegments;
+    // Case A: inline segments
+    const inlineSegments =
+      content?.transcriptRenderer
+        ?.content?.transcriptSearchPanelRenderer
+        ?.body?.transcriptSegmentListRenderer
+        ?.initialSegments;
+    if (Array.isArray(inlineSegments) && inlineSegments.length > 0) {
+      const segments = parseSegments(inlineSegments);
+      if (segments.length) return segments;
+    }
 
-  if (Array.isArray(inlineSegments) && inlineSegments.length > 0) {
-    const segments = parseSegments(inlineSegments);
-    if (!segments.length) throw new Error('Could not parse transcript for this video.');
-    return segments;
+    // Case B: innertube continuation
+    const continuationToken =
+      content?.continuationItemRenderer
+        ?.continuationEndpoint?.getTranscriptEndpoint?.params;
+    if (continuationToken) {
+      const segments = await fetchViaInnertube(continuationToken);
+      if (segments) return segments;
+    }
   }
 
-  // Case B: continuation token (common)
-  const continuationToken =
-    content?.continuationItemRenderer
-      ?.continuationEndpoint?.getTranscriptEndpoint?.params;
+  // Fallback: timedtext URL from ytInitialPlayerResponse, fetched without cookies
+  const segments = await fetchViaTimedtext(data);
+  if (segments) return segments;
 
-  if (!continuationToken) throw new Error('No transcript available for this video.');
+  throw new Error('No transcript available for this video.');
+}
 
+async function fetchViaInnertube(continuationToken) {
   const apiKey = getYtcfgValue('INNERTUBE_API_KEY') || '';
   const clientVersion = getYtcfgValue('INNERTUBE_CLIENT_VERSION') || '';
+  const visitorData = getYtcfgValue('VISITOR_DATA') || '';
 
-  let response;
   try {
-    response = await fetch(`/youtubei/v1/get_transcript?key=${apiKey}`, {
+    const res = await fetch(`/youtubei/v1/get_transcript?key=${apiKey}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -111,45 +118,70 @@ async function fetchTranscript() {
         'X-YouTube-Client-Version': clientVersion,
       },
       body: JSON.stringify({
-        context: { client: { clientName: 'WEB', clientVersion, hl: 'en' } },
+        context: { client: { clientName: 'WEB', clientVersion, hl: 'en', visitorData } },
         params: continuationToken,
       }),
     });
-  } catch {
-    throw new Error('Could not load transcript — try reloading the page.');
-  }
+    if (!res.ok) return null;
+    const responseData = await res.json().catch(() => null);
+    if (!responseData) return null;
 
-  if (!response.ok) throw new Error('Could not load transcript — try reloading the page.');
-
-  let responseData;
-  try {
-    responseData = await response.json();
-  } catch {
-    throw new Error('Could not load transcript — try reloading the page.');
-  }
-
-  const actions = responseData?.actions;
-  if (!Array.isArray(actions)) throw new Error('Could not parse transcript for this video.');
-
-  let actionSegments = null;
-  for (const action of actions) {
-    const segs =
-      action?.updateEngagementPanelAction
-        ?.content?.transcriptRenderer
-        ?.content?.transcriptSearchPanelRenderer
-        ?.body?.transcriptSegmentListRenderer
-        ?.initialSegments;
-    if (Array.isArray(segs) && segs.length > 0) {
-      actionSegments = segs;
-      break;
+    for (const action of responseData?.actions || []) {
+      const segs =
+        action?.updateEngagementPanelAction
+          ?.content?.transcriptRenderer
+          ?.content?.transcriptSearchPanelRenderer
+          ?.body?.transcriptSegmentListRenderer
+          ?.initialSegments;
+      if (Array.isArray(segs) && segs.length > 0) {
+        const segments = parseSegments(segs);
+        if (segments.length) return segments;
+      }
     }
+  } catch {}
+  return null;
+}
+
+async function fetchViaTimedtext(initialData) {
+  // Extract caption URL from ytInitialPlayerResponse in script tags
+  let playerData = null;
+  for (const script of document.querySelectorAll('script')) {
+    const text = script.textContent;
+    if (!text.includes('ytInitialPlayerResponse')) continue;
+    const marker = 'ytInitialPlayerResponse';
+    const idx = text.indexOf(marker);
+    let start = idx + marker.length;
+    while (start < text.length && /[\s=]/.test(text[start])) start++;
+    if (text[start] !== '{') continue;
+    const jsonStr = extractJsonObject(text, start);
+    if (jsonStr) { try { playerData = JSON.parse(jsonStr); break; } catch {} }
   }
+  if (!playerData) return null;
 
-  if (!actionSegments) throw new Error('Could not parse transcript for this video.');
+  const tracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+  if (!tracks?.length) return null;
 
-  const segments = parseSegments(actionSegments);
-  if (!segments.length) throw new Error('Could not parse transcript for this video.');
-  return segments;
+  const track = tracks.find((t) => t.languageCode === 'en') || tracks[0];
+  if (!track?.baseUrl) return null;
+
+  try {
+    // Omit credentials: the URL is pre-signed; cookies cause YouTube to redirect to HTML
+    const res = await fetch(track.baseUrl, { credentials: 'omit' });
+    if (!res.ok) return null;
+    const rawText = await res.text();
+    const xmlDoc = new DOMParser().parseFromString(rawText, 'text/xml');
+    if (xmlDoc.querySelector('parsererror')) return null;
+
+    const segments = Array.from(xmlDoc.querySelectorAll('text'))
+      .map((node) => ({
+        text: node.textContent.trim(),
+        start: parseFloat(node.getAttribute('start') || '0'),
+        duration: parseFloat(node.getAttribute('dur') || '0'),
+      }))
+      .filter((s) => s.text.length > 0);
+    return segments.length ? segments : null;
+  } catch {}
+  return null;
 }
 
 function showError(message) {
