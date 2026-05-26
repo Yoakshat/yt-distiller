@@ -4,25 +4,14 @@
   <meta charset="UTF-8" />
   <title>YT Distiller</title>
   <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: #1a1a1a;
       color: #e8e8e8;
-      width: 320px;
+      width: 280px;
       padding: 20px;
-    }
-
-    .header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 20px;
     }
 
     h1 {
@@ -30,200 +19,58 @@
       font-weight: 700;
       color: #ff4444;
       letter-spacing: -0.3px;
+      margin-bottom: 16px;
     }
 
-    .status-chip {
+    .status-row {
       display: flex;
       align-items: center;
-      gap: 5px;
-      font-size: 11px;
-      font-weight: 500;
-      color: #aaa;
+      gap: 10px;
+      padding: 12px;
       background: #252525;
-      border-radius: 20px;
-      padding: 4px 10px;
       border: 1px solid #333;
+      border-radius: 8px;
     }
 
-    .status-dot {
-      width: 7px;
-      height: 7px;
+    .dot {
+      width: 9px;
+      height: 9px;
       border-radius: 50%;
       flex-shrink: 0;
     }
 
-    .status-dot.green {
-      background: #44cc77;
-      box-shadow: 0 0 4px #44cc7788;
-    }
+    .dot.green { background: #44cc77; box-shadow: 0 0 5px #44cc7788; }
+    .dot.red   { background: #ff5555; box-shadow: 0 0 5px #ff555588; }
+    .dot.grey  { background: #555; }
 
-    .status-dot.red {
-      background: #ff5555;
-      box-shadow: 0 0 4px #ff555588;
-    }
-
-    label {
-      display: block;
-      font-size: 11px;
-      font-weight: 600;
-      color: #888;
-      margin-bottom: 7px;
-      text-transform: uppercase;
-      letter-spacing: 0.6px;
-    }
-
-    .input-row {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    input[type="password"],
-    input[type="text"] {
-      flex: 1;
-      padding: 9px 12px;
-      background: #252525;
-      border: 1px solid #333;
-      border-radius: 7px;
-      color: #e8e8e8;
+    #status-label {
       font-size: 13px;
-      outline: none;
-      transition: border-color 0.15s;
-      min-width: 0;
-    }
-
-    input[type="password"]:focus,
-    input[type="text"]:focus {
-      border-color: #ff4444;
-    }
-
-    input[type="password"]::placeholder,
-    input[type="text"]::placeholder {
-      color: #555;
-    }
-
-    .toggle-btn {
-      flex-shrink: 0;
-      padding: 7px 10px;
-      background: #252525;
-      border: 1px solid #333;
-      border-radius: 7px;
-      color: #888;
-      font-size: 11px;
       font-weight: 600;
-      cursor: pointer;
-      transition: border-color 0.15s, color 0.15s;
-      white-space: nowrap;
     }
 
-    .toggle-btn:hover {
-      border-color: #555;
-      color: #bbb;
-    }
-
-    .input-meta {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-top: 7px;
-      min-height: 16px;
-    }
-
-    .deepseek-link {
+    #hint {
+      margin-top: 14px;
       font-size: 11px;
       color: #666;
-      text-decoration: none;
-      cursor: pointer;
-      transition: color 0.15s;
+      line-height: 1.6;
     }
 
-    .deepseek-link:hover {
-      color: #ff6666;
-    }
-
-    #clearBtn {
-      font-size: 11px;
-      color: #555;
-      background: none;
-      border: none;
-      cursor: pointer;
-      padding: 0;
-      margin: 0;
-      width: auto;
-      font-weight: 500;
-      transition: color 0.15s;
-    }
-
-    #clearBtn:hover {
-      color: #ff5555;
-      background: none;
-    }
-
-    button#saveBtn {
-      margin-top: 14px;
-      width: 100%;
-      padding: 10px;
-      background: #ff4444;
-      border: none;
-      border-radius: 7px;
-      color: #fff;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.15s;
-    }
-
-    button#saveBtn:hover {
-      background: #e03333;
-    }
-
-    #status {
-      margin-top: 10px;
-      font-size: 12px;
-      min-height: 18px;
-      text-align: center;
+    #hint code {
+      font-family: monospace;
+      background: #252525;
+      padding: 1px 5px;
+      border-radius: 3px;
       color: #aaa;
-    }
-
-    #status.error {
-      color: #ff6666;
-    }
-
-    #status.success {
-      color: #44cc77;
     }
   </style>
 </head>
 <body>
-  <div class="header">
-    <h1>YT Distiller</h1>
-    <div class="status-chip" id="statusChip">
-      <span class="status-dot red" id="statusDot"></span>
-      <span id="statusLabel">No key</span>
-    </div>
+  <h1>YT Distiller</h1>
+  <div class="status-row">
+    <div class="dot grey" id="dot"></div>
+    <span id="status-label">Checking…</span>
   </div>
-
-  <label for="apiKey">DeepSeek API Key</label>
-  <div class="input-row">
-    <input
-      type="password"
-      id="apiKey"
-      placeholder="sk-..."
-      autocomplete="off"
-      spellcheck="false"
-    />
-    <button class="toggle-btn" id="toggleBtn">Show</button>
-  </div>
-
-  <div class="input-meta">
-    <span class="deepseek-link" id="deepseekLink">Get a free DeepSeek API key →</span>
-    <button id="clearBtn" style="display:none;">Clear</button>
-  </div>
-
-  <button id="saveBtn">Save</button>
-
-  <div id="status"></div>
-
+  <p id="hint"></p>
   <script src="popup.js"></script>
 </body>
 </html>

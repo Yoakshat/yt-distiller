@@ -1,0 +1,6 @@
+flask
+flask-cors
+youtube-transcript-api
+openai
+python-dotenv
+httpx<0.28

@@ -1,24 +1,14 @@
 {
   "manifest_version": 3,
   "name": "YT Distiller",
-  "version": "1.0",
+  "version": "1.1",
   "description": "Distill any YouTube video to only the essential clips",
-  "permissions": ["storage", "activeTab", "scripting", "tabs"],
+  "permissions": ["storage", "activeTab"],
   "host_permissions": [
     "https://www.youtube.com/*",
-    "https://*.youtube.com/*",
-    "https://api.deepseek.com/*"
+    "http://localhost:8765/*"
   ],
-  "background": {
-    "service_worker": "background.js"
-  },
   "content_scripts": [
-    {
-      "matches": ["https://www.youtube.com/watch*"],
-      "js": ["content-main.js"],
-      "world": "MAIN",
-      "run_at": "document_start"
-    },
     {
       "matches": ["https://www.youtube.com/watch*"],
       "js": ["content.js"],

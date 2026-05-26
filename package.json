@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "generate-icons.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "cd server && python app.py"
   },
   "repository": {
     "type": "git",

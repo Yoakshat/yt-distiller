@@ -1,28 +1,4 @@
-// Fetches transcript by messaging content-main.js (which runs in the page's main world
-// with access to ytcfg, real cookies, ytInitialPlayerResponse, etc.)
-async function fetchTranscript() {
-  const segments = await fetchViaMainWorld();
-  if (segments && segments.length) return segments;
-  throw new Error('No transcript available for this video.');
-}
-
-function fetchViaMainWorld() {
-  return new Promise((resolve) => {
-    const msgId = 'ytd-' + Math.random().toString(36).slice(2);
-
-    const handler = (event) => {
-      if (event.source !== window || event.data?.type !== 'YTD_TRANSCRIPT_RESULT' || event.data?.msgId !== msgId) return;
-      window.removeEventListener('message', handler);
-      resolve(event.data.segments || null);
-    };
-    window.addEventListener('message', handler);
-
-    // content-main.js listens for this message and handles the transcript fetch
-    window.postMessage({ type: 'YTD_FETCH_TRANSCRIPT', msgId }, '*');
-
-    setTimeout(() => { window.removeEventListener('message', handler); resolve(null); }, 15000);
-  });
-}
+const SERVER = 'http://localhost:8765';
 
 function showError(message) {
   let errorDiv = document.getElementById('ytd-error');
@@ -81,46 +57,28 @@ async function startDistill() {
 
   const reset = () => { btn.textContent = 'Distill ✶'; btn.disabled = false; };
   btn.disabled = true;
-  btn.textContent = 'Fetching…';
-
-  let transcript;
-  try {
-    transcript = await fetchTranscript();
-  } catch (err) {
-    showError(err.message);
-    reset();
-    return;
-  }
-
-  btn.textContent = 'Analyzing…';
+  btn.textContent = 'Distilling…';
 
   let result;
   try {
-    result = await new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({ type: 'ANALYZE_TRANSCRIPT', transcript }, (response) => {
-        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-        else resolve(response);
-      });
+    const res = await fetch(`${SERVER}/distill`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: location.href }),
     });
-  } catch (err) {
-    showError('Extension error: ' + err.message);
+    result = await res.json();
+  } catch {
+    showError('Server not running — start it: cd server && python app.py');
     reset();
     return;
   }
 
-  if (!result || !result.ok) {
-    const msg = result?.error
-      ? (result.error.includes('No DeepSeek API key configured')
-          ? 'No API key — open the extension popup to set one.'
-          : result.error)
-      : 'Something went wrong. Please try again.';
-    console.log('[YTD] error:', msg, '| result:', JSON.stringify(result));
-    showError(msg);
+  if (!result.ok) {
+    showError(result.error || 'Something went wrong. Please try again.');
     reset();
     return;
   }
 
-  console.log('[YTD] segments received:', JSON.stringify(result.segments));
   try {
     playSegments(result.segments);
   } catch (err) {
