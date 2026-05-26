@@ -91,6 +91,7 @@ async function fetchTranscript() {
     const continuationToken =
       content?.continuationItemRenderer
         ?.continuationEndpoint?.getTranscriptEndpoint?.params;
+    console.log('[YTD] innertube continuationToken:', continuationToken ? continuationToken.slice(0, 40) + '…' : 'none');
     if (continuationToken) {
       const segments = await fetchViaInnertube(continuationToken);
       if (segments) return segments;
@@ -98,6 +99,7 @@ async function fetchTranscript() {
   }
 
   // Fallback: timedtext URL from ytInitialPlayerResponse, fetched without cookies
+  console.log('[YTD] falling back to timedtext');
   const segments = await fetchViaTimedtext(data);
   if (segments) return segments;
 
@@ -152,25 +154,30 @@ async function fetchViaTimedtext(initialData) {
     const idx = text.indexOf(marker);
     let start = idx + marker.length;
     while (start < text.length && /[\s=]/.test(text[start])) start++;
+    console.log('[YTD] timedtext: marker found, next char:', JSON.stringify(text[start]));
     if (text[start] !== '{') continue;
     const jsonStr = extractJsonObject(text, start);
-    if (jsonStr) { try { playerData = JSON.parse(jsonStr); break; } catch {} }
+    if (jsonStr) { try { playerData = JSON.parse(jsonStr); break; } catch (e) { console.log('[YTD] timedtext parse error:', e.message); } }
   }
-  if (!playerData) return null;
+  if (!playerData) { console.log('[YTD] timedtext: no playerData'); return null; }
 
   const tracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+  console.log('[YTD] timedtext: tracks found:', tracks?.length ?? 0);
   if (!tracks?.length) return null;
 
   const track = tracks.find((t) => t.languageCode === 'en') || tracks[0];
+  console.log('[YTD] timedtext: using track lang:', track?.languageCode, 'url:', track?.baseUrl?.slice(0, 80));
   if (!track?.baseUrl) return null;
 
   try {
     // Omit credentials: the URL is pre-signed; cookies cause YouTube to redirect to HTML
     const res = await fetch(track.baseUrl, { credentials: 'omit' });
+    console.log('[YTD] timedtext fetch status:', res.status, 'content-type:', res.headers.get('content-type'));
     if (!res.ok) return null;
     const rawText = await res.text();
+    console.log('[YTD] timedtext response prefix:', rawText.slice(0, 120));
     const xmlDoc = new DOMParser().parseFromString(rawText, 'text/xml');
-    if (xmlDoc.querySelector('parsererror')) return null;
+    if (xmlDoc.querySelector('parsererror')) { console.log('[YTD] timedtext: XML parse error'); return null; }
 
     const segments = Array.from(xmlDoc.querySelectorAll('text'))
       .map((node) => ({
@@ -179,8 +186,9 @@ async function fetchViaTimedtext(initialData) {
         duration: parseFloat(node.getAttribute('dur') || '0'),
       }))
       .filter((s) => s.text.length > 0);
+    console.log('[YTD] timedtext: segments extracted:', segments.length);
     return segments.length ? segments : null;
-  } catch {}
+  } catch (e) { console.log('[YTD] timedtext fetch error:', e.message); }
   return null;
 }
 
