@@ -1,4 +1,4 @@
-const SERVER = 'http://localhost:8765';
+const SERVER = 'https://server-production-088c.up.railway.app';
 
 function showError(message) {
   let errorDiv = document.getElementById('ytd-error');
@@ -59,16 +59,23 @@ async function startDistill() {
   btn.disabled = true;
   btn.textContent = 'Distilling…';
 
+  const { deepseekApiKey } = await chrome.storage.sync.get('deepseekApiKey');
+  if (!deepseekApiKey) {
+    showError('No API key — open the YT Distiller extension popup to add your DeepSeek key.');
+    reset();
+    return;
+  }
+
   let result;
   try {
     const res = await fetch(`${SERVER}/distill`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: location.href }),
+      body: JSON.stringify({ url: location.href, api_key: deepseekApiKey }),
     });
     result = await res.json();
   } catch {
-    showError('Server not running — start it: cd server && python app.py');
+    showError('Could not reach the distillation server. Try again in a moment.');
     reset();
     return;
   }

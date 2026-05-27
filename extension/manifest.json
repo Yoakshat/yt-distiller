@@ -6,7 +6,7 @@
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
     "https://www.youtube.com/*",
-    "http://localhost:8765/*"
+    "https://server-production-088c.up.railway.app/*"
   ],
   "content_scripts": [
     {

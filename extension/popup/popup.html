@@ -22,55 +22,71 @@
       margin-bottom: 16px;
     }
 
-    .status-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 12px;
+    label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+
+    input[type="password"] {
+      width: 100%;
       background: #252525;
       border: 1px solid #333;
-      border-radius: 8px;
+      border-radius: 6px;
+      color: #e8e8e8;
+      font-size: 13px;
+      padding: 8px 10px;
+      outline: none;
     }
 
-    .dot {
-      width: 9px;
-      height: 9px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
+    input[type="password"]:focus { border-color: #555; }
 
-    .dot.green { background: #44cc77; box-shadow: 0 0 5px #44cc7788; }
-    .dot.red   { background: #ff5555; box-shadow: 0 0 5px #ff555588; }
-    .dot.grey  { background: #555; }
-
-    #status-label {
+    button {
+      margin-top: 10px;
+      width: 100%;
+      background: #ff4444;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
       font-size: 13px;
       font-weight: 600;
+      padding: 8px;
+      cursor: pointer;
     }
 
-    #hint {
+    button:hover { background: #e03333; }
+
+    #status {
+      margin-top: 12px;
+      font-size: 11px;
+      color: #555;
+      min-height: 16px;
+    }
+
+    #status.ok { color: #44cc77; }
+    #status.err { color: #ff5555; }
+
+    .hint {
       margin-top: 14px;
       font-size: 11px;
-      color: #666;
+      color: #555;
       line-height: 1.6;
     }
 
-    #hint code {
-      font-family: monospace;
-      background: #252525;
-      padding: 1px 5px;
-      border-radius: 3px;
-      color: #aaa;
-    }
+    a { color: #888; }
   </style>
 </head>
 <body>
   <h1>YT Distiller</h1>
-  <div class="status-row">
-    <div class="dot grey" id="dot"></div>
-    <span id="status-label">Checking…</span>
-  </div>
-  <p id="hint"></p>
+  <label for="api-key">DeepSeek API Key</label>
+  <input type="password" id="api-key" placeholder="sk-..." />
+  <button id="save-btn">Save</button>
+  <p id="status"></p>
+  <p class="hint">Go to any YouTube video and click <strong>Distill ✶</strong> in the player controls.<br><br>Get a free key at <a href="https://platform.deepseek.com" target="_blank">platform.deepseek.com</a></p>
   <script src="popup.js"></script>
 </body>
 </html>

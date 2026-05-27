@@ -1,19 +1,21 @@
-const dot = document.getElementById('dot');
-const label = document.getElementById('status-label');
-const hint = document.getElementById('hint');
+const input = document.getElementById('api-key');
+const btn = document.getElementById('save-btn');
+const status = document.getElementById('status');
 
-fetch('http://localhost:8765/health')
-  .then(r => r.json())
-  .then(() => {
-    dot.className = 'dot green';
-    label.textContent = 'Server connected';
-    hint.innerHTML = 'Go to any YouTube video and click <strong>Distill ✶</strong> in the player controls.';
-  })
-  .catch(() => {
-    dot.className = 'dot red';
-    label.textContent = 'Server not running';
-    hint.innerHTML =
-      'Start the server first:<br><br>' +
-      '<code>cd server</code><br>' +
-      '<code>python app.py</code>';
+chrome.storage.sync.get('deepseekApiKey', ({ deepseekApiKey }) => {
+  if (deepseekApiKey) input.value = deepseekApiKey;
+});
+
+btn.addEventListener('click', () => {
+  const key = input.value.trim();
+  if (!key) {
+    status.className = 'err';
+    status.textContent = 'Please enter an API key.';
+    return;
+  }
+  chrome.storage.sync.set({ deepseekApiKey: key }, () => {
+    status.className = 'ok';
+    status.textContent = 'Saved!';
+    setTimeout(() => { status.textContent = ''; status.className = ''; }, 2000);
   });
+});

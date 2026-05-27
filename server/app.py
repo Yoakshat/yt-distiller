@@ -12,11 +12,6 @@ CORS(app)
 
 yt_api = YouTubeTranscriptApi()
 
-client = OpenAI(
-    api_key=os.environ.get('DEEPSEEK_API_KEY', ''),
-    base_url='https://api.deepseek.com',
-)
-
 SYSTEM = (
     'You are distilling a video down to its most mind-blowing moments — the insights a smart person '
     'would still remember a week later. Your job is not to summarize the video. '
@@ -32,8 +27,14 @@ USER_PROMPT = (
     'Step 2 — For each surviving insight, find the minimum lines needed to deliver it. '
     'Cut the setup. Cut the over-explanation. Cut the moment the point has already landed. '
     'Keep only the sharpest version of the idea.\n\n'
-    'Step 3 — Look at all your clips together. Do they flow as a coherent highlight reel? '
-    'If two clips make the same underlying point, keep the better one and cut the other entirely.\n\n'
+    'Step 3 — Check that your clips form a coherent set. '
+    'If two clips make the same underlying point, keep the better one and cut the other entirely. '
+    'Then, for each clip, ask: does it assume the viewer knows something that hasn\'t been established yet in an earlier clip? '
+    'Watch for openers like "and that\'s why", "so because of that", "as I said", "this means", or dangling pronouns '
+    '("it", "this", "that", "they") with no referent. '
+    'If a clip assumes context that no earlier clip provides, find the moment in the transcript that establishes that context '
+    'and add it as its own clip — placed before the dependent one. '
+    'Only fall back to extending the clip\'s own start time if no clean standalone moment exists that provides the context.\n\n'
     'The goal is the fewest clips with the highest insight density. '
     'A 60-minute video might only have 6 truly mind-blowing moments. Find those 6. '
     'Do not pad with decent-but-not-great insights just to fill time.\n\n'
@@ -47,11 +48,10 @@ USER_PROMPT = (
     'You are expected to produce many clips — 50, 80, 100+ is normal and correct. '
     'A low clip count (under 20) means you are being too conservative and stitching things together that should be cut apart. '
     'Err aggressively toward more clips, not fewer.\n\n'
-    'Before finalizing, review all clips together as if watching them back-to-back. '
-    'If any two clips convey the same point or repeat the same information, keep only the clearest one and cut the other. '
-    'The stitched result should feel like every sentence is new information.\n\n'
+    'Before finalizing, review all clips back-to-back as a viewer would experience them. '
+    'Every sentence should feel like new information. No repeated points, no confusing cold openings.\n\n'
     'Return ONLY a JSON object, no other text:\n'
-    '{{"reasoning": "2-3 sentences on what you kept and what you cut and why.", '
+    '{{"reasoning": "2-3 sentences on what you kept, what you cut, and any clips where you expanded the start to preserve context.", '
     '"segments": [{{"start": 12.1, "end": 45.3}}, {{"start": 102.5, "end": 187.2}}]}}\n\n'
     'Rules:\n'
     '- Minimum segment length: 8 seconds\n'
@@ -71,7 +71,12 @@ def health():
 
 @app.route('/distill', methods=['POST'])
 def distill():
-    url = (request.json or {}).get('url', '')
+    body = request.json or {}
+    url = body.get('url', '')
+    api_key = body.get('api_key', '')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'No DeepSeek API key — open the extension popup to add one.'}), 401
+
     vid = extract_video_id(url)
     if not vid:
         return jsonify({'ok': False, 'error': 'Invalid YouTube URL'}), 400
@@ -84,6 +89,8 @@ def distill():
     transcript_text = '\n'.join(
         f'[{t.start:.1f}s] {t.text}' for t in transcript
     )
+
+    client = OpenAI(api_key=api_key, base_url='https://api.deepseek.com')
 
     try:
         resp = client.chat.completions.create(
