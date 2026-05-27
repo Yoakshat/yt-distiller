@@ -129,5 +129,5 @@ def distill():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8765))
-    print(f'YT Distiller server running on http://localhost:{port}')
-    app.run(port=port)
+    print(f'YT Distiller server running on port {port}')
+    app.run(host='0.0.0.0', port=port)
